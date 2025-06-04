@@ -1,0 +1,32 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'com.springlite'
+version = '1.0.0'
+sourceCompatibility = '11'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'javax.servlet:javax.servlet-api:4.0.1'
+    implementation 'org.eclipse.jetty:jetty-server:9.4.44.v20210927'
+    implementation 'org.eclipse.jetty:jetty-servlet:9.4.44.v20210927'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.13.0'
+    testImplementation 'junit:junit:4.13.2'
+}
+
+application {
+    mainClass = 'com.springlite.demo.Application'
+}
+
+compileJava {
+    options.encoding = 'UTF-8'
+}
+
+compileTestJava {
+    options.encoding = 'UTF-8'
+} 
