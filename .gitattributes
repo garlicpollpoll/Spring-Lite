@@ -1,0 +1,9 @@
+target/** linguist-vendored
+
+public/** linguist-vendored
+resources/** linguist-vendored
+
+lib/** linguist-vendored
+
+static/** linguist-vendored
+templates/** linguist-vendored
