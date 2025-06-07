@@ -7,3 +7,6 @@ lib/** linguist-vendored
 
 static/** linguist-vendored
 templates/** linguist-vendored
+
+build/reports/** linguist-generated
+build/** linguist-generated
