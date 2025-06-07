@@ -38,11 +38,19 @@ public class Application {
             
             System.out.println("\n=== Server Started Successfully! ===");
             System.out.println("Server running on: http://localhost:8080");
-            System.out.println("\nAvailable endpoints:");
+            System.out.println("\n🚀 REST API Endpoints:");
             System.out.println("- GET http://localhost:8080/api/users/hello");
             System.out.println("- GET http://localhost:8080/api/users/test");
             System.out.println("- GET http://localhost:8080/api/users");
-            System.out.println("\nPress Ctrl+C to stop the server");
+            System.out.println("\n🎨 MVC Web Pages:");
+            System.out.println("- GET http://localhost:8080/api/users/view (사용자 목록 JSP)");
+            System.out.println("- GET http://localhost:8080/api/users/detail (사용자 상세 JSP)");
+            System.out.println("\n✨ 이제 진짜 Spring MVC 패턴이 완성되었습니다!");
+            System.out.println("- Model: UserService, User 클래스");
+            System.out.println("- View: JSP 파일들 (/WEB-INF/views/)");
+            System.out.println("- Controller: UserController");
+            System.out.println("\n⚠️  현재는 JSP 의존성 이슈로 일단 기본 설정으로 실행");
+            System.out.println("Press Ctrl+C to stop the server");
             
             // 서버가 종료될 때까지 대기
             server.join();
