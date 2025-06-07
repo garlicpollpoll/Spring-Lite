@@ -14,11 +14,7 @@
 ## 실행 방법
 
 ```bash
-javac -cp "lib/*" -d build/classes $(find src/main/java -name "*.java")
-```
-
-```bash
-java -cp "build/classes:lib/*" com.springlite.demo.Application
+./gradlew run
 ```
 
 ## 프로젝트 구조
