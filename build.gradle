@@ -12,24 +12,67 @@ repositories {
 }
 
 dependencies {
-    implementation 'javax.servlet:javax.servlet-api:4.0.1'
+    // Jetty 서버 의존성들
     implementation 'org.eclipse.jetty:jetty-server:9.4.44.v20210927'
     implementation 'org.eclipse.jetty:jetty-servlet:9.4.44.v20210927'
     implementation 'org.eclipse.jetty:jetty-webapp:9.4.44.v20210927'
-    implementation 'org.eclipse.jetty:jetty-jsp:9.4.44.v20210927'
+    implementation 'org.eclipse.jetty:jetty-annotations:9.4.44.v20210927'
+    
+    // 🔥 JSP 지원 의존성들 (Apache JSP 엔진 사용)
+    implementation 'org.eclipse.jetty:apache-jsp:9.4.44.v20210927'
+    implementation 'org.eclipse.jetty:apache-jstl:9.4.44.v20210927'
+    
+    // JSP API 및 EL (Expression Language)
     implementation 'javax.servlet.jsp:javax.servlet.jsp-api:2.3.3'
-    implementation 'com.fasterxml.jackson.core:jackson-databind:2.13.0'
-    testImplementation 'junit:junit:4.13.2'
+    implementation 'javax.el:javax.el-api:3.0.0'
+    implementation 'org.glassfish:javax.el:3.0.0'
+    
+    // Servlet API
+    implementation 'javax.servlet:javax.servlet-api:4.0.1'
+    
+    // Jackson for JSON processing
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.15.2'
+    implementation 'com.fasterxml.jackson.core:jackson-core:2.15.2'
+    implementation 'com.fasterxml.jackson.core:jackson-annotations:2.15.2'
+    
+    // 로깅 (선택사항)
+    implementation 'org.slf4j:slf4j-simple:1.7.36'
 }
 
 application {
     mainClass = 'com.springlite.demo.Application'
 }
 
+// 🔥 JSP 컴파일을 위한 추가 설정
 compileJava {
     options.encoding = 'UTF-8'
+    options.compilerArgs += ['-parameters']
 }
 
-compileTestJava {
-    options.encoding = 'UTF-8'
+// 실행 시 JVM 옵션 설정
+run {
+    systemProperty 'file.encoding', 'UTF-8'
+    jvmArgs = [
+        '-Dorg.eclipse.jetty.util.log.class=org.eclipse.jetty.util.log.StdErrLog',
+        '-Dorg.eclipse.jetty.LEVEL=INFO'
+    ]
+}
+
+// JAR 빌드 설정
+jar {
+    manifest {
+        attributes(
+            'Main-Class': 'com.springlite.demo.Application'
+        )
+    }
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+task printClasspath {
+    doLast {
+        configurations.runtimeClasspath.each { println it }
+    }
 } 
