@@ -8,6 +8,7 @@ import java.io.File;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Parameter;
 import java.net.URL;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -20,6 +21,9 @@ public class AnnotationApplicationContext implements ApplicationContext {
     private Set<String> creatingBeans = new HashSet<>();
     private boolean running = false;
     private ProxyFactory proxyFactory;
+    
+    // 🔥 새로 추가: @Configuration 클래스들을 관리
+    private Map<Class<?>, Object> configurationInstances = new ConcurrentHashMap<>();
     
     public AnnotationApplicationContext(Class<?> configClass) {
         this.proxyFactory = new ProxyFactory();
@@ -36,6 +40,13 @@ public class AnnotationApplicationContext implements ApplicationContext {
     @Override
     public void refresh() {
         // 1. 빈 정의 스캔 (이미 완료)
+        
+        // 🔥 새로 추가: @Configuration 클래스들을 먼저 인스턴스화
+        instantiateConfigurationClasses();
+        
+        // 🔥 새로 추가: @Bean 메서드들을 스캔해서 BeanDefinition 생성
+        scanBeanMethods();
+        
         // 2. 빈 인스턴스 생성 및 의존성 주입
         instantiateBeans();
         // 3. 애플리케이션 컨텍스트 시작
@@ -110,7 +121,8 @@ public class AnnotationApplicationContext implements ApplicationContext {
         return clazz.isAnnotationPresent(Component.class) ||
                clazz.isAnnotationPresent(Service.class) ||
                clazz.isAnnotationPresent(Repository.class) ||
-               clazz.isAnnotationPresent(Controller.class);
+               clazz.isAnnotationPresent(Controller.class) ||
+               clazz.isAnnotationPresent(Configuration.class);
     }
     
     private void registerBean(Class<?> clazz) {
@@ -119,6 +131,9 @@ public class AnnotationApplicationContext implements ApplicationContext {
         
         // Autowired 필드, 메소드, 생성자 찾기
         findAutowiredMembers(beanDefinition);
+        
+        // 🔥 새로 추가: 빈 라이프사이클 메서드 스캔
+        scanLifecycleMethods(clazz, beanDefinition);
         
         beanDefinitionMap.put(beanName, beanDefinition);
         typeToNameMap.put(clazz, beanName);
@@ -150,6 +165,14 @@ public class AnnotationApplicationContext implements ApplicationContext {
             Controller controller = clazz.getAnnotation(Controller.class);
             if (!controller.value().isEmpty()) {
                 return controller.value();
+            }
+        }
+        
+        // 🔥 새로 추가: @Configuration 지원
+        if (clazz.isAnnotationPresent(Configuration.class)) {
+            Configuration configuration = clazz.getAnnotation(Configuration.class);
+            if (!configuration.value().isEmpty()) {
+                return configuration.value();
             }
         }
         
@@ -262,9 +285,45 @@ public class AnnotationApplicationContext implements ApplicationContext {
     
     @Override
     public void close() {
+        System.out.println("🔴 ApplicationContext 종료 중...");
+        
+        // 🔥 새로 추가: 빈 소멸 시 @PreDestroy 메서드 호출
+        for (Map.Entry<String, BeanDefinition> entry : beanDefinitionMap.entrySet()) {
+            String beanName = entry.getKey();
+            BeanDefinition beanDefinition = entry.getValue();
+            Object bean = singletonBeans.get(beanName);
+            
+            if (bean != null) {
+                try {
+                    // 1. @PreDestroy 메서드들 호출
+                    for (Method preDestroyMethod : beanDefinition.getPreDestroyMethods()) {
+                        preDestroyMethod.setAccessible(true);
+                        preDestroyMethod.invoke(bean);
+                        System.out.println("🛑 @PreDestroy 호출: " + beanName + "." + preDestroyMethod.getName());
+                    }
+                    
+                    // 2. @Bean의 destroyMethod 호출 (있는 경우)
+                    String destroyMethodName = beanDefinition.getDestroyMethodName();
+                    if (destroyMethodName != null && !destroyMethodName.isEmpty()) {
+                        try {
+                            Method destroyMethod = bean.getClass().getDeclaredMethod(destroyMethodName);
+                            destroyMethod.setAccessible(true);
+                            destroyMethod.invoke(bean);
+                            System.out.println("🛑 destroyMethod 호출: " + beanName + "." + destroyMethodName);
+                        } catch (NoSuchMethodException e) {
+                            System.err.println("⚠️  destroyMethod 를 찾을 수 없습니다: " + destroyMethodName);
+                        }
+                    }
+                } catch (Exception e) {
+                    System.err.println("❌ 빈 소멸 중 오류 발생: " + beanName);
+                    e.printStackTrace();
+                }
+            }
+        }
+        
         running = false;
         singletonBeans.clear();
-        System.out.println("ApplicationContext closed");
+        System.out.println("✅ ApplicationContext 종료 완료");
     }
     
     @Override
@@ -288,8 +347,18 @@ public class AnnotationApplicationContext implements ApplicationContext {
         creatingBeans.add(beanName);
         
         try {
-            Object instance = instantiateBean(beanDefinition);
-            populateBean(instance, beanDefinition);
+            Object instance;
+            
+            // 🔥 @Bean 메서드로 생성된 빈인지 확인
+            if (beanDefinition.isBeanMethod()) {
+                instance = createBeanFromMethod(beanDefinition);
+            } else {
+                instance = instantiateBean(beanDefinition);
+                populateBean(instance, beanDefinition);
+            }
+            
+            // 🔥 빈 초기화 (라이프사이클 메서드 호출)
+            initializeBean(instance, beanDefinition);
             
             // @Transactional이 있으면 프록시 생성
             if (needsProxy(beanDefinition.getBeanClass())) {
@@ -297,8 +366,62 @@ public class AnnotationApplicationContext implements ApplicationContext {
             }
             
             return instance;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to create bean: " + beanName, e);
         } finally {
             creatingBeans.remove(beanName);
+        }
+    }
+    
+    /**
+     * 🔥 새로 추가: @Bean 메서드로부터 빈 생성
+     */
+    private Object createBeanFromMethod(BeanDefinition beanDefinition) throws Exception {
+        Method beanMethod = beanDefinition.getBeanMethod();
+        Object configInstance = beanDefinition.getConfigurationInstance();
+        
+        // 메서드 파라미터들에 대한 의존성 주입
+        Parameter[] parameters = beanMethod.getParameters();
+        Object[] args = new Object[parameters.length];
+        
+        for (int i = 0; i < parameters.length; i++) {
+            Parameter parameter = parameters[i];
+            
+            // 파라미터에 대한 의존성 주입
+            Object dependency = getBean(parameter.getType());
+            args[i] = dependency;
+        }
+        
+        // @Bean 메서드 호출
+        beanMethod.setAccessible(true);
+        Object bean = beanMethod.invoke(configInstance, args);
+        
+        System.out.println("🔧 @Bean 메서드로 빈 생성: " + beanDefinition.getBeanName() + " = " + bean);
+        return bean;
+    }
+    
+    /**
+     * 🔥 새로 추가: 빈 초기화 및 라이프사이클 메서드 호출
+     */
+    private void initializeBean(Object bean, BeanDefinition beanDefinition) throws Exception {
+        // 1. @PostConstruct 메서드들 호출
+        for (Method postConstructMethod : beanDefinition.getPostConstructMethods()) {
+            postConstructMethod.setAccessible(true);
+            postConstructMethod.invoke(bean);
+            System.out.println("🚀 @PostConstruct 호출: " + beanDefinition.getBeanName() + "." + postConstructMethod.getName());
+        }
+        
+        // 2. @Bean의 initMethod 호출 (있는 경우)
+        String initMethodName = beanDefinition.getInitMethodName();
+        if (initMethodName != null && !initMethodName.isEmpty()) {
+            try {
+                Method initMethod = bean.getClass().getDeclaredMethod(initMethodName);
+                initMethod.setAccessible(true);
+                initMethod.invoke(bean);
+                System.out.println("🚀 initMethod 호출: " + beanDefinition.getBeanName() + "." + initMethodName);
+            } catch (NoSuchMethodException e) {
+                System.err.println("⚠️  initMethod 를 찾을 수 없습니다: " + initMethodName);
+            }
         }
     }
     
@@ -367,5 +490,88 @@ public class AnnotationApplicationContext implements ApplicationContext {
         }
         
         return false;
+    }
+    
+    /**
+     * 🔥 새로 추가: @PostConstruct, @PreDestroy 메서드 스캔
+     */
+    private void scanLifecycleMethods(Class<?> clazz, BeanDefinition beanDefinition) {
+        Method[] methods = clazz.getDeclaredMethods();
+        
+        for (Method method : methods) {
+            if (method.isAnnotationPresent(PostConstruct.class)) {
+                beanDefinition.getPostConstructMethods().add(method);
+                System.out.println("  📋 @PostConstruct 메서드 발견: " + method.getName());
+            }
+            
+            if (method.isAnnotationPresent(PreDestroy.class)) {
+                beanDefinition.getPreDestroyMethods().add(method);
+                System.out.println("  📋 @PreDestroy 메서드 발견: " + method.getName());
+            }
+        }
+    }
+    
+    /**
+     * 🔥 새로 추가: @Configuration 클래스들을 먼저 인스턴스화
+     */
+    private void instantiateConfigurationClasses() {
+        for (BeanDefinition bd : beanDefinitionMap.values()) {
+            if (bd.getBeanClass().isAnnotationPresent(Configuration.class)) {
+                try {
+                    Object configInstance = createBean(bd);
+                    configurationInstances.put(bd.getBeanClass(), configInstance);
+                    System.out.println("⚙️  Configuration 클래스 인스턴스화: " + bd.getBeanName());
+                } catch (Exception e) {
+                    System.err.println("❌ Configuration 클래스 인스턴스화 실패: " + bd.getBeanName());
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
+    
+    /**
+     * 🔥 새로 추가: @Configuration 클래스들에서 @Bean 메서드 스캔
+     */
+    private void scanBeanMethods() {
+        for (Map.Entry<Class<?>, Object> entry : configurationInstances.entrySet()) {
+            Class<?> configClass = entry.getKey();
+            Object configInstance = entry.getValue();
+            
+            Method[] methods = configClass.getDeclaredMethods();
+            for (Method method : methods) {
+                if (method.isAnnotationPresent(Bean.class)) {
+                    createBeanDefinitionFromMethod(method, configInstance);
+                }
+            }
+        }
+    }
+    
+    /**
+     * 🔥 새로 추가: @Bean 메서드로부터 BeanDefinition 생성
+     */
+    private void createBeanDefinitionFromMethod(Method method, Object configInstance) {
+        Bean beanAnnotation = method.getAnnotation(Bean.class);
+        
+        // 빈 이름 결정 (value가 있으면 사용, 없으면 메서드명 사용)
+        String beanName;
+        if (beanAnnotation.value().length > 0 && !beanAnnotation.value()[0].isEmpty()) {
+            beanName = beanAnnotation.value()[0];
+        } else {
+            beanName = method.getName();
+        }
+        
+        // 반환 타입을 빈 클래스로 사용
+        Class<?> beanClass = method.getReturnType();
+        
+        BeanDefinition beanDefinition = new BeanDefinition(beanName, beanClass, method, configInstance);
+        
+        // @Bean 어노테이션 속성들 설정
+        beanDefinition.setInitMethodName(beanAnnotation.initMethod());
+        beanDefinition.setDestroyMethodName(beanAnnotation.destroyMethod());
+        beanDefinition.setDefaultCandidate(beanAnnotation.defaultCandidate());
+        
+        beanDefinitionMap.put(beanName, beanDefinition);
+        typeToNameMap.put(beanClass, beanName);
+        System.out.println("🔧 @Bean 메서드로부터 BeanDefinition 등록: " + beanName + " (" + beanClass.getSimpleName() + ")");
     }
 } 

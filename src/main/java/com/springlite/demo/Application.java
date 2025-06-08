@@ -88,6 +88,11 @@ public class Application {
             // 5. 서버 시작
             server.setHandler(context);
             server.start();
+
+            System.out.println("🔧 @Bean 메서드로 생성된 빈들:");
+            System.out.println(applicationContext.getBean("databaseService"));
+            System.out.println(applicationContext.getBean("cacheService"));
+            System.out.println(applicationContext.getBean("customName"));
             
             System.out.println("\n=== Server Started Successfully! ===");
             System.out.println("Server running on: http://localhost:8080");
