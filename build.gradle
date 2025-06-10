@@ -71,6 +71,31 @@ jar {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
 
+// 🔥 AOP 테스트 애플리케이션 실행 태스크
+task runAopTest(type: JavaExec) {
+    description = 'Run AOP Test Application'
+    group = 'application'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.springlite.demo.AopTestApp'
+    systemProperty 'file.encoding', 'UTF-8'
+    jvmArgs = [
+        '-Dorg.eclipse.jetty.util.log.class=org.eclipse.jetty.util.log.StdErrLog',
+        '-Dorg.eclipse.jetty.LEVEL=INFO'
+    ]
+}
+
+task runLifecycleTest(type: JavaExec) {
+    description = 'Run Lifecycle Test Application'
+    group = 'application'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.springlite.demo.LifecycleTestApp'
+    systemProperty 'file.encoding', 'UTF-8'
+    jvmArgs = [
+        '-Dorg.eclipse.jetty.util.log.class=org.eclipse.jetty.util.log.StdErrLog',
+        '-Dorg.eclipse.jetty.LEVEL=INFO'
+    ]
+}
+
 task printClasspath {
     doLast {
         configurations.runtimeClasspath.each { println it }

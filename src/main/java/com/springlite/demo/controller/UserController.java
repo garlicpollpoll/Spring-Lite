@@ -1,6 +1,6 @@
 package com.springlite.demo.controller;
 
-import com.springlite.demo.model.User;
+import com.springlite.demo.dto.User;
 import com.springlite.demo.service.UserService;
 import com.springlite.framework.annotations.Autowired;
 import com.springlite.framework.annotations.Controller;
@@ -60,7 +60,7 @@ public class UserController {
         
         // 예시로 첫 번째 사용자 상세 정보를 보여줌
         List<User> users = userService.getAllUsers();
-        User firstUser = users.isEmpty() ? new User("No User", "no@example.com") : users.get(0);
+        User firstUser = users.isEmpty() ? new User(0L, "No User", "no@example.com") : users.get(0);
         
         ModelAndView modelAndView = new ModelAndView();
         modelAndView.setViewName("user/detail");
@@ -76,7 +76,7 @@ public class UserController {
         System.out.println("UserController: GET /users/pathvar/" + id + " (PathVariable Test)");
         
         // 간단한 예시 응답
-        return new User("User " + id, "user" + id + "@example.com");
+        return new User(id, "User " + id, "user" + id + "@example.com");
     }
     
     // 🔥 새로 추가: @RequestParam 테스트  
@@ -86,7 +86,7 @@ public class UserController {
         System.out.println("UserController: GET /users/search?name=" + name + "&page=" + page);
         
         // 간단한 검색 시뮬레이션
-        return List.of(new User(name + " (search result)", name.toLowerCase() + "@example.com"));
+        return List.of(new User(1L, name + " (search result)", name.toLowerCase() + "@example.com"));
     }
     
     // 🔥 새로 추가: @RequestBody 테스트
@@ -95,7 +95,7 @@ public class UserController {
         System.out.println("UserController: POST /users/create with body: " + user.getName());
         
         // 사용자 생성 시뮬레이션
-        User createdUser = new User(user.getName(), user.getEmail());
+        User createdUser = new User(999L, user.getName(), user.getEmail());
         System.out.println("Created user: " + createdUser.getName() + " <" + createdUser.getEmail() + ">");
         
         return createdUser;

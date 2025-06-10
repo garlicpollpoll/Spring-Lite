@@ -3,6 +3,8 @@ package com.springlite.framework.context;
 import com.springlite.framework.annotations.*;
 import com.springlite.framework.beans.BeanDefinition;
 import com.springlite.framework.proxy.ProxyFactory;
+import com.springlite.framework.aop.*;
+import com.springlite.framework.aop.annotations.Aspect;
 
 import java.io.File;
 import java.lang.reflect.Constructor;
@@ -13,7 +15,7 @@ import java.net.URL;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class AnnotationApplicationContext implements ApplicationContext {
+public class AnnotationApplicationContext implements ApplicationContext, AutoCloseable {
     
     private Map<String, BeanDefinition> beanDefinitionMap = new ConcurrentHashMap<>();
     private Map<String, Object> singletonBeans = new ConcurrentHashMap<>();
@@ -25,14 +27,20 @@ public class AnnotationApplicationContext implements ApplicationContext {
     // 🔥 새로 추가: @Configuration 클래스들을 관리
     private Map<Class<?>, Object> configurationInstances = new ConcurrentHashMap<>();
     
+    // 🔥 새로 추가: AOP 관련
+    private AopProxyFactory aopProxyFactory;
+    private List<AspectMetadata> aspects = new ArrayList<>();
+    
     public AnnotationApplicationContext(Class<?> configClass) {
         this.proxyFactory = new ProxyFactory();
+        this.aopProxyFactory = new AopProxyFactory();
         scan(configClass);
         refresh();
     }
     
     public AnnotationApplicationContext(String... basePackages) {
         this.proxyFactory = new ProxyFactory();
+        this.aopProxyFactory = new AopProxyFactory();
         scanPackages(basePackages);
         refresh();
     }
@@ -41,17 +49,20 @@ public class AnnotationApplicationContext implements ApplicationContext {
     public void refresh() {
         // 1. 빈 정의 스캔 (이미 완료)
         
-        // 🔥 새로 추가: @Configuration 클래스들을 먼저 인스턴스화
+        // @Configuration 클래스들을 먼저 인스턴스화
         instantiateConfigurationClasses();
         
-        // 🔥 새로 추가: @Bean 메서드들을 스캔해서 BeanDefinition 생성
+        // @Bean 메서드들을 스캔해서 BeanDefinition 생성
         scanBeanMethods();
+        
+        // 🔥 새로 추가: @Aspect 애스펙트 스캔 및 등록
+        scanAndRegisterAspects();
         
         // 2. 빈 인스턴스 생성 및 의존성 주입
         instantiateBeans();
         // 3. 애플리케이션 컨텍스트 시작
         running = true;
-        System.out.println("ApplicationContext refreshed with " + beanDefinitionMap.size() + " beans");
+        System.out.println("ApplicationContext refreshed with " + beanDefinitionMap.size() + " beans and " + aspects.size() + " aspects");
     }
     
     private void scan(Class<?> configClass) {
@@ -122,7 +133,8 @@ public class AnnotationApplicationContext implements ApplicationContext {
                clazz.isAnnotationPresent(Service.class) ||
                clazz.isAnnotationPresent(Repository.class) ||
                clazz.isAnnotationPresent(Controller.class) ||
-               clazz.isAnnotationPresent(Configuration.class);
+               clazz.isAnnotationPresent(Configuration.class) ||
+               clazz.isAnnotationPresent(Aspect.class);
     }
     
     private void registerBean(Class<?> clazz) {
@@ -357,12 +369,23 @@ public class AnnotationApplicationContext implements ApplicationContext {
                 populateBean(instance, beanDefinition);
             }
             
-            // 🔥 빈 초기화 (라이프사이클 메서드 호출)
+            // 빈 초기화 (라이프사이클 메서드 호출)
             initializeBean(instance, beanDefinition);
             
-            // @Transactional이 있으면 프록시 생성
+            // 🔥 AOP 프록시 적용 (Aspect 클래스가 아닌 경우만)
+            if (!beanDefinition.getBeanClass().isAnnotationPresent(Aspect.class)) {
+                if (aopProxyFactory.needsProxy(instance)) {
+                    Object aopProxy = aopProxyFactory.createProxy(instance);
+                    System.out.println("🎭 AOP 프록시 생성: " + beanName + " → " + aopProxy.getClass().getSimpleName());
+                    instance = aopProxy;
+                }
+            }
+            
+            // @Transactional이 있으면 트랜잭션 프록시 생성
             if (needsProxy(beanDefinition.getBeanClass())) {
-                instance = proxyFactory.createProxy(instance);
+                Object txProxy = proxyFactory.createProxy(instance);
+                System.out.println("💳 트랜잭션 프록시 생성: " + beanName);
+                instance = txProxy;
             }
             
             return instance;
@@ -573,5 +596,31 @@ public class AnnotationApplicationContext implements ApplicationContext {
         beanDefinitionMap.put(beanName, beanDefinition);
         typeToNameMap.put(beanClass, beanName);
         System.out.println("🔧 @Bean 메서드로부터 BeanDefinition 등록: " + beanName + " (" + beanClass.getSimpleName() + ")");
+    }
+    
+    /**
+     * 🔥 새로 추가: @Aspect 애스펙트 스캔 및 등록
+     */
+    private void scanAndRegisterAspects() {
+        for (BeanDefinition bd : beanDefinitionMap.values()) {
+            if (bd.getBeanClass().isAnnotationPresent(Aspect.class)) {
+                try {
+                    // Aspect 인스턴스 생성
+                    Object aspectInstance = getBean(bd.getBeanName());
+                    
+                    // AspectScanner를 사용해서 aspect 메타데이터 처리
+                    AspectMetadata aspectMetadata = AspectScanner.processAspect(aspectInstance);
+                    aspects.add(aspectMetadata);
+                    
+                    // AopProxyFactory에 aspect 추가
+                    aopProxyFactory.addAspect(aspectMetadata);
+                    
+                    System.out.println("✅ Aspect 등록 완료: " + bd.getBeanName());
+                } catch (Exception e) {
+                    System.err.println("❌ Aspect 등록 실패: " + bd.getBeanName());
+                    e.printStackTrace();
+                }
+            }
+        }
     }
 } 
