@@ -11,10 +11,21 @@
 5. **Bean Lifecycle** - 빈 생명주기 관리
 6. **IoC & DI** - 제어 반전과 의존성 주입
 
-## 실행 방법
+## 실행 방법 (일반 애플리케이션)
 
 ```bash
 ./gradlew run
+```
+
+## 실행 방법 (AopTest)
+
+```bash
+./gradlew runAopTest
+```
+
+## 실행 방법 (BeanLifeCycleTest)
+```bash
+./gradlew runLifecycleTest
 ```
 
 ## 프로젝트 구조
