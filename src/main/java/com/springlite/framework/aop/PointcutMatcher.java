@@ -28,6 +28,40 @@ public class PointcutMatcher {
         
         System.out.println("    🔍 PointcutMatcher: Testing '" + expr + "' against " + targetClass.getSimpleName() + "." + method.getName());
         
+        // Handle OR expressions (||)
+        if (expr.contains(" || ")) {
+            String[] parts = expr.split(" \\|\\| ");
+            for (String part : parts) {
+                if (matchesSingleExpression(part.trim(), method, targetClass)) {
+                    System.out.println("      📝 OR expression result: true (matched '" + part.trim() + "')");
+                    return true;
+                }
+            }
+            System.out.println("      📝 OR expression result: false");
+            return false;
+        }
+        
+        // Handle AND expressions (&&)
+        if (expr.contains(" && ")) {
+            String[] parts = expr.split(" && ");
+            for (String part : parts) {
+                if (!matchesSingleExpression(part.trim(), method, targetClass)) {
+                    System.out.println("      📝 AND expression result: false (failed on '" + part.trim() + "')");
+                    return false;
+                }
+            }
+            System.out.println("      📝 AND expression result: true");
+            return true;
+        }
+        
+        // Single expression
+        return matchesSingleExpression(expr, method, targetClass);
+    }
+    
+    /**
+     * Matches a single pointcut expression (not compound).
+     */
+    private boolean matchesSingleExpression(String expr, Method method, Class<?> targetClass) {
         // Handle execution() pointcut
         if (expr.startsWith("execution(")) {
             boolean matches = matchesExecution(expr, method, targetClass);
@@ -37,8 +71,15 @@ public class PointcutMatcher {
         
         // Handle @annotation() pointcut
         if (expr.startsWith("@annotation(")) {
-            boolean matches = matchesAnnotation(expr, method);
+            boolean matches = matchesAnnotation(expr, method, targetClass);
             System.out.println("      📝 @annotation pattern result: " + matches);
+            return matches;
+        }
+        
+        // Handle @within() pointcut
+        if (expr.startsWith("@within(")) {
+            boolean matches = matchesAtWithin(expr, method, targetClass);
+            System.out.println("      📝 @within pattern result: " + matches);
             return matches;
         }
         
@@ -104,16 +145,43 @@ public class PointcutMatcher {
     }
     
     /**
-     * Matches @annotation pointcut expressions.
+     * Matches @annotation pointcut expressions with target class support.
      */
-    private boolean matchesAnnotation(String expr, Method method) {
+    private boolean matchesAnnotation(String expr, Method method, Class<?> targetClass) {
         // Extract annotation class name from @annotation(com.xyz.Annotation)
         String annotationName = expr.substring(12, expr.length() - 1); // Remove "@annotation(" and ")"
         
         // Handle common annotations
         if (annotationName.contains("Transactional")) {
-            return method.isAnnotationPresent(com.springlite.framework.annotations.Transactional.class) ||
-                   method.getDeclaringClass().isAnnotationPresent(com.springlite.framework.annotations.Transactional.class);
+            // Try to find the corresponding method in the target class
+            try {
+                Method targetMethod = targetClass.getMethod(method.getName(), method.getParameterTypes());
+                boolean hasAnnotation = targetMethod.isAnnotationPresent(com.springlite.framework.transaction.Transactional.class) ||
+                                      targetClass.isAnnotationPresent(com.springlite.framework.transaction.Transactional.class);
+                System.out.println("        📝 Target method annotation check: " + targetMethod.getName() + " = " + hasAnnotation);
+                return hasAnnotation;
+            } catch (NoSuchMethodException e) {
+                System.out.println("        ⚠️ Could not find method " + method.getName() + " in target class " + targetClass.getSimpleName());
+                // Fall back to original method check
+                return method.isAnnotationPresent(com.springlite.framework.transaction.Transactional.class) ||
+                       method.getDeclaringClass().isAnnotationPresent(com.springlite.framework.transaction.Transactional.class);
+            }
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Matches @within pointcut expressions.
+     * @within matches if the target class (or any of its superclasses) has the specified annotation.
+     */
+    private boolean matchesAtWithin(String expr, Method method, Class<?> targetClass) {
+        // Extract annotation class name from @within(com.xyz.Annotation)
+        String annotationName = expr.substring(8, expr.length() - 1); // Remove "@within(" and ")"
+        
+        // Handle common annotations
+        if (annotationName.contains("Transactional")) {
+            return targetClass.isAnnotationPresent(com.springlite.framework.transaction.Transactional.class);
         }
         
         return false;

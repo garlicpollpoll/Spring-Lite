@@ -116,4 +116,17 @@ task printClasspath {
     doLast {
         configurations.runtimeClasspath.each { println it }
     }
+}
+
+// 트랜잭션 테스트 실행 태스크
+task runTransactionTest(type: JavaExec) {
+    group = 'application'
+    description = '🔄 Spring Lite 트랜잭션 시스템 테스트 실행'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.springlite.demo.TransactionTestApp'
+    
+    doFirst {
+        println '🔄 Spring Lite 트랜잭션 ACID 테스트를 시작합니다!'
+        println '==================================================='
+    }
 } 

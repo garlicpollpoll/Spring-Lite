@@ -1,5 +1,8 @@
 package com.springlite.framework.jdbc;
 
+import com.springlite.framework.transaction.JdbcTransactionManager;
+import com.springlite.framework.transaction.TransactionStatus;
+
 import javax.sql.DataSource;
 import java.sql.*;
 import java.util.ArrayList;
@@ -10,6 +13,7 @@ import java.util.Map;
 /**
  * 🚀 Spring Lite JDBC Template
  * Spring Framework의 JdbcTemplate을 참고하여 간단하게 구현한 버전
+ * 🔄 트랜잭션과 연동되어 ACID 속성을 보장합니다!
  * 
  * 기본 기능:
  * - DDL 실행 (execute)
@@ -17,6 +21,7 @@ import java.util.Map;
  * - 단일 값 조회 (queryForObject)
  * - 리스트 조회 (queryForList)
  * - 객체 매핑 조회 (query with RowMapper)
+ * - 🔄 트랜잭션 지원 (현재 트랜잭션의 Connection 사용)
  */
 public class JdbcTemplate {
     
@@ -42,6 +47,49 @@ public class JdbcTemplate {
         return dataSource;
     }
     
+    /**
+     * 🔄 트랜잭션 인식 Connection 가져오기
+     * 현재 트랜잭션이 있으면 그 Connection을 사용하고, 없으면 새로운 Connection을 생성
+     */
+    private Connection getConnection() throws SQLException {
+        // 현재 트랜잭션 확인
+        TransactionStatus currentTransaction = JdbcTransactionManager.getCurrentTransaction();
+        
+        if (currentTransaction != null && !currentTransaction.isCompleted()) {
+            // 트랜잭션이 있으면 해당 Connection 사용
+            Connection connection = currentTransaction.getConnection();
+            System.out.println("🔄 현재 트랜잭션의 Connection 사용: " + connection.hashCode());
+            return connection;
+        } else {
+            // 트랜잭션이 없으면 새로운 Connection 생성 (autoCommit=true)
+            Connection connection = dataSource.getConnection();
+            System.out.println("🆕 새로운 Connection 생성: " + connection.hashCode());
+            return connection;
+        }
+    }
+    
+    /**
+     * 🔄 Connection 정리 (트랜잭션 여부에 따라 다르게 처리)
+     */
+    private void closeConnection(Connection connection) {
+        TransactionStatus currentTransaction = JdbcTransactionManager.getCurrentTransaction();
+        
+        if (currentTransaction != null && !currentTransaction.isCompleted()) {
+            // 트랜잭션이 있으면 Connection을 닫지 않음 (트랜잭션 매니저가 관리)
+            System.out.println("🔄 트랜잭션 Connection은 닫지 않음: " + connection.hashCode());
+        } else {
+            // 트랜잭션이 없으면 Connection 닫기
+            try {
+                if (connection != null && !connection.isClosed()) {
+                    connection.close();
+                    System.out.println("🆕 새로운 Connection 닫음: " + connection.hashCode());
+                }
+            } catch (SQLException e) {
+                System.err.println("⚠️ Connection 닫기 실패: " + e.getMessage());
+            }
+        }
+    }
+
     // ========================================
     // 🔥 DDL 실행 (CREATE, ALTER, DROP 등)
     // ========================================
@@ -55,15 +103,18 @@ public class JdbcTemplate {
     public void execute(String sql) {
         System.out.println("🗒️ DDL 실행: " + sql);
         
-        try (Connection conn = dataSource.getConnection();
-             Statement stmt = conn.createStatement()) {
-            
-            stmt.execute(sql);
-            System.out.println("✅ DDL 실행 성공");
-            
+        Connection conn = null;
+        try {
+            conn = getConnection();
+            try (Statement stmt = conn.createStatement()) {
+                stmt.execute(sql);
+                System.out.println("✅ DDL 실행 성공");
+            }
         } catch (SQLException e) {
             System.err.println("❌ DDL 실행 실패: " + e.getMessage());
             throw new JdbcException("DDL 실행 실패: " + sql, e);
+        } finally {
+            closeConnection(conn);
         }
     }
     
@@ -80,19 +131,22 @@ public class JdbcTemplate {
     public int update(String sql, Object... params) {
         System.out.println("📝 DML 실행: " + sql + " with params: " + java.util.Arrays.toString(params));
         
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            
-            // 파라미터 설정
-            setParameters(pstmt, params);
-            
-            int affectedRows = pstmt.executeUpdate();
-            System.out.println("✅ DML 실행 성공, 영향받은 행: " + affectedRows);
-            return affectedRows;
-            
+        Connection conn = null;
+        try {
+            conn = getConnection();
+            try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                // 파라미터 설정
+                setParameters(pstmt, params);
+                
+                int affectedRows = pstmt.executeUpdate();
+                System.out.println("✅ DML 실행 성공, 영향받은 행: " + affectedRows);
+                return affectedRows;
+            }
         } catch (SQLException e) {
             System.err.println("❌ DML 실행 실패: " + e.getMessage());
             throw new JdbcException("DML 실행 실패: " + sql, e);
+        } finally {
+            closeConnection(conn);
         }
     }
     
@@ -111,27 +165,30 @@ public class JdbcTemplate {
     public <T> T queryForObject(String sql, Class<T> requiredType, Object... params) {
         System.out.println("🔍 단일 값 조회: " + sql + " with params: " + java.util.Arrays.toString(params));
         
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            
-            // 파라미터 설정
-            setParameters(pstmt, params);
-            
-            try (ResultSet rs = pstmt.executeQuery()) {
-                if (rs.next()) {
-                    Object value = rs.getObject(1);
-                    T result = convertValue(value, requiredType);
-                    System.out.println("✅ 단일 값 조회 성공: " + result);
-                    return result;
-                } else {
-                    System.out.println("⚠️ 조회 결과 없음");
-                    return null;
+        Connection conn = null;
+        try {
+            conn = getConnection();
+            try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                // 파라미터 설정
+                setParameters(pstmt, params);
+                
+                try (ResultSet rs = pstmt.executeQuery()) {
+                    if (rs.next()) {
+                        Object value = rs.getObject(1);
+                        T result = convertValue(value, requiredType);
+                        System.out.println("✅ 단일 값 조회 성공: " + result);
+                        return result;
+                    } else {
+                        System.out.println("⚠️ 조회 결과 없음");
+                        return null;
+                    }
                 }
             }
-            
         } catch (SQLException e) {
             System.err.println("❌ 단일 값 조회 실패: " + e.getMessage());
             throw new JdbcException("단일 값 조회 실패: " + sql, e);
+        } finally {
+            closeConnection(conn);
         }
     }
     
@@ -148,34 +205,37 @@ public class JdbcTemplate {
     public List<Map<String, Object>> queryForList(String sql, Object... params) {
         System.out.println("📋 리스트 조회: " + sql + " with params: " + java.util.Arrays.toString(params));
         
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            
-            // 파라미터 설정
-            setParameters(pstmt, params);
-            
-            try (ResultSet rs = pstmt.executeQuery()) {
-                List<Map<String, Object>> results = new ArrayList<>();
-                ResultSetMetaData metaData = rs.getMetaData();
-                int columnCount = metaData.getColumnCount();
+        Connection conn = null;
+        try {
+            conn = getConnection();
+            try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                // 파라미터 설정
+                setParameters(pstmt, params);
                 
-                while (rs.next()) {
-                    Map<String, Object> row = new HashMap<>();
-                    for (int i = 1; i <= columnCount; i++) {
-                        String columnName = metaData.getColumnLabel(i);
-                        Object value = rs.getObject(i);
-                        row.put(columnName, value);
+                try (ResultSet rs = pstmt.executeQuery()) {
+                    List<Map<String, Object>> results = new ArrayList<>();
+                    ResultSetMetaData metaData = rs.getMetaData();
+                    int columnCount = metaData.getColumnCount();
+                    
+                    while (rs.next()) {
+                        Map<String, Object> row = new HashMap<>();
+                        for (int i = 1; i <= columnCount; i++) {
+                            String columnName = metaData.getColumnLabel(i);
+                            Object value = rs.getObject(i);
+                            row.put(columnName, value);
+                        }
+                        results.add(row);
                     }
-                    results.add(row);
+                    
+                    System.out.println("✅ 리스트 조회 성공: " + results.size() + "개 행");
+                    return results;
                 }
-                
-                System.out.println("✅ 리스트 조회 성공: " + results.size() + "개 행");
-                return results;
             }
-            
         } catch (SQLException e) {
             System.err.println("❌ 리스트 조회 실패: " + e.getMessage());
             throw new JdbcException("리스트 조회 실패: " + sql, e);
+        } finally {
+            closeConnection(conn);
         }
     }
     
@@ -193,28 +253,31 @@ public class JdbcTemplate {
     public <T> List<T> query(String sql, RowMapper<T> rowMapper, Object... params) {
         System.out.println("🎯 객체 매핑 조회: " + sql + " with params: " + java.util.Arrays.toString(params));
         
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            
-            // 파라미터 설정
-            setParameters(pstmt, params);
-            
-            try (ResultSet rs = pstmt.executeQuery()) {
-                List<T> results = new ArrayList<>();
-                int rowNum = 0;
+        Connection conn = null;
+        try {
+            conn = getConnection();
+            try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                // 파라미터 설정
+                setParameters(pstmt, params);
                 
-                while (rs.next()) {
-                    T object = rowMapper.mapRow(rs, rowNum++);
-                    results.add(object);
+                try (ResultSet rs = pstmt.executeQuery()) {
+                    List<T> results = new ArrayList<>();
+                    int rowNum = 0;
+                    
+                    while (rs.next()) {
+                        T object = rowMapper.mapRow(rs, rowNum++);
+                        results.add(object);
+                    }
+                    
+                    System.out.println("✅ 객체 매핑 조회 성공: " + results.size() + "개 객체");
+                    return results;
                 }
-                
-                System.out.println("✅ 객체 매핑 조회 성공: " + results.size() + "개 객체");
-                return results;
             }
-            
         } catch (SQLException e) {
             System.err.println("❌ 객체 매핑 조회 실패: " + e.getMessage());
             throw new JdbcException("객체 매핑 조회 실패: " + sql, e);
+        } finally {
+            closeConnection(conn);
         }
     }
     
