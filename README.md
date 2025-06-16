@@ -11,7 +11,7 @@
 5. **Bean Lifecycle** - 빈 생명주기 관리
 6. **IoC & DI** - 제어 반전과 의존성 주입
 
-## 실행 방법 (일반 애플리케이션)
+## 실행 방법 (일반 애플리케이션 / gradle을 설치하셔야 정상 작동됩니다.)
 
 ```bash
 ./gradlew run
@@ -28,7 +28,12 @@
 ./gradlew runLifecycleTest
 ```
 
+## 실행 방법 (JdbcTest)
+```bash
+./gradlew runJdbcTest
+```
+
 ## 프로젝트 구조
 
 - `src/main/java/com/springlite/framework/` - 프레임워크 코어
-- `src/main/java/com/springlite/demo/` - 데모 애플리케이션 
+- `src/main/java/com/springlite/demo/` - 데모 애플리케이션
