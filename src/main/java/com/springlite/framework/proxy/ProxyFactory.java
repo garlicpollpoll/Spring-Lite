@@ -1,6 +1,6 @@
 package com.springlite.framework.proxy;
 
-import com.springlite.framework.annotations.Transactional;
+import com.springlite.framework.transaction.Transactional;
 
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;

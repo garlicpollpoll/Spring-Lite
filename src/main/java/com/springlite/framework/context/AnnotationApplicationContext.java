@@ -5,6 +5,7 @@ import com.springlite.framework.beans.BeanDefinition;
 import com.springlite.framework.proxy.ProxyFactory;
 import com.springlite.framework.aop.*;
 import com.springlite.framework.aop.annotations.Aspect;
+import com.springlite.framework.transaction.Transactional;
 
 import java.io.File;
 import java.lang.reflect.Constructor;
@@ -30,6 +31,14 @@ public class AnnotationApplicationContext implements ApplicationContext, AutoClo
     // 🔥 새로 추가: AOP 관련
     private AopProxyFactory aopProxyFactory;
     private List<AspectMetadata> aspects = new ArrayList<>();
+    
+    /**
+     * 기본 생성자 - 수동으로 빈을 등록할 때 사용
+     */
+    public AnnotationApplicationContext() {
+        this.proxyFactory = new ProxyFactory();
+        this.aopProxyFactory = new AopProxyFactory();
+    }
     
     public AnnotationApplicationContext(Class<?> configClass) {
         this.proxyFactory = new ProxyFactory();
@@ -82,7 +91,7 @@ public class AnnotationApplicationContext implements ApplicationContext, AutoClo
         }
     }
     
-    private void scanPackages(String... basePackages) {
+    public void scanPackages(String... basePackages) {
         for (String basePackage : basePackages) {
             scanPackage(basePackage);
         }
@@ -622,5 +631,19 @@ public class AnnotationApplicationContext implements ApplicationContext, AutoClo
                 }
             }
         }
+    }
+    
+    /**
+     * 수동으로 싱글톤 빈을 등록합니다 (트랜잭션 관련 빈들을 위해 추가)
+     */
+    public void registerBean(String beanName, Object beanInstance) {
+        singletonBeans.put(beanName, beanInstance);
+        typeToNameMap.put(beanInstance.getClass(), beanName);
+        
+        // 간단한 BeanDefinition도 생성해서 등록
+        BeanDefinition beanDefinition = new BeanDefinition(beanName, beanInstance.getClass());
+        beanDefinitionMap.put(beanName, beanDefinition);
+        
+        System.out.println("✅ 수동 빈 등록: " + beanName + " (" + beanInstance.getClass().getSimpleName() + ")");
     }
 } 
